@@ -63,6 +63,10 @@ sigkey = HMAC_SHA1(5C0733AE0401F7E8BA7993FDCD2F1FE0, 游戏签名密钥)[:16]   
 - 把存档重签成 xemu 的 key 再签回 360 旧KV，结果与原文件逐字节一致。
 - 存档里没有其它与主机绑定的数据（不像 DOA 的 ups.dat 还绑定 MAC）。
 
+## 5.6 TDATA 系统存档 system.dat
+位置 `TDATA\5443000D\system.dat`，固定 0x550（1,360）字节，签名方式与 save000.dat 完全相同（偏移 0 的 20 字节 HMAC，覆盖 0x14 之后，同一游戏签名密钥，NoRoam）。重签只需 HD Key，软件会自动处理。
+来源：[feudalnate/Original-Xbox-Gamesave-Resigners](https://github.com/feudalnate/Original-Xbox-Gamesave-Resigners/tree/master/Ninja-Gaiden-Black)。
+
 ## 6. 配套工具
 `ngb_save_info.py`：纯 Python、无需安装依赖。
 ```

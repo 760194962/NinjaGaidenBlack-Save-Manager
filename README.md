@@ -8,7 +8,7 @@ Instead of 12-hex folder names, see what each save actually is: slot, chapter, p
 ## Features / 功能
 - Reads slot / chapter / play time (to the second) / difficulty / mode for every save (no keys needed)
 - Move a save to another slot (rewrites SaveMeta and renames the folder to the correct hash)
-- Re-sign saves with an XboxHDKey (move between console / xemu / Xbox 360)
+- Re-sign saves with an XboxHDKey (move between console / xemu / Xbox 360); also re-signs `TDATA\5443000d\system.dat` (settings, 1,360 bytes) if it sits next to the UDATA folder. Output goes to `resigned/<key>_<time>/UDATA` and `/TDATA`
 - Multi-select, copy selected saves to another folder, or copy to clipboard
 - Open a single save's folder; per-save notes (stored in `save_notes.json`, never inside the save)
 - CSV export; CLI version `ngb_save_info.py`
