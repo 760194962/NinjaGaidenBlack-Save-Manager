@@ -515,6 +515,7 @@ class App(tk.Tk):
         ttk.Button(top, text="编辑备注", command=self.edit_note).pack(side="left", padx=4)
         ttk.Button(top, text="移动到槽位…", command=self.move_dialog).pack(side="left", padx=4)
         ttk.Button(top, text="HD Key 重签…", command=self.resign_dialog).pack(side="left")
+        ttk.Button(top, text="system.dat 重签…", command=self.system_dialog).pack(side="left", padx=4)
         ttk.Button(top, text="打开所选存档文件夹", command=self.open_folder).pack(side="left", padx=4)
         ttk.Label(top, text="筛选:").pack(side="left", padx=(14, 2))
         self.q = tk.StringVar(); self.q.trace_add("write", lambda *a: self.fill())
@@ -715,6 +716,51 @@ class App(tk.Tk):
             win.destroy()
             messagebox.showinfo("重签完成", "成功 %d / %d 个。\n输出文件夹（UDATA / TDATA 子文件夹可直接拷到目标主机）:\n%s%s%s" % (
                 len(res) - len(bad), len(res), out, extra, ("\n\n有问题的: " + ", ".join("%s(%s)" % (x[0], x[2]) for x in bad)) if bad else ""))
+        ttk.Button(win, text="开始重签", command=go).pack(pady=10)
+
+    def system_dialog(self):
+        """Standalone window: pick TDATA\\5443000d\\system.dat, show who signed it, re-sign it for another HD key."""
+        self.keys = load_keys()
+        win = tk.Toplevel(self); win.title("TDATA system.dat 重签"); win.geometry("560x330"); win.transient(self); win.grab_set()
+        ttk.Label(win, text="读取 TDATA\\5443000d\\system.dat（1,360 字节），重签为目标 HD Key（原文件不会被修改）", wraplength=520).pack(padx=12, pady=(12, 6), anchor="w")
+        f0 = ttk.Frame(win); f0.pack(fill="x", padx=12)
+        path = tk.StringVar(); ent0 = ttk.Entry(f0, textvariable=path); ent0.pack(side="left", fill="x", expand=True)
+        info = ttk.Label(win, text="", foreground="#666", wraplength=520, justify="left")
+        def refresh(*_):
+            p = path.get().strip()
+            if not p: info.config(text="请选择 system.dat。"); return
+            try: raw = open(p, "rb").read()
+            except Exception as ex: info.config(text="读取失败: %s" % ex); return
+            if len(raw) != SYSTEM_SIZE: info.config(text="大小 %d 字节，不是 system.dat（应为 %d）。" % (len(raw), SYSTEM_SIZE)); return
+            info.config(text="大小正常。当前签名属于: %s" % (sig_owner(raw, self.keys) or "未识别（不在 hd_keys.json 里）"))
+        def browse():
+            init = os.path.dirname(find_system_dat(self.root_dir)) if self.root_dir and find_system_dat(self.root_dir) else None
+            p = filedialog.askopenfilename(title="选择 system.dat", initialdir=init, filetypes=[("system.dat", "system.dat"), ("所有文件", "*.*")], parent=win)
+            if p: path.set(p); refresh()
+        ttk.Button(f0, text="浏览…", command=browse).pack(side="left", padx=(6, 0))
+        if self.root_dir and find_system_dat(self.root_dir): path.set(find_system_dat(self.root_dir))
+        info.pack(padx=12, pady=6, anchor="w")
+        f1 = ttk.Frame(win); f1.pack(fill="x", padx=12, pady=4)
+        ttk.Label(f1, text="目标 HD Key:").pack(side="left")
+        cb = ttk.Combobox(f1, values=list(self.keys) + ["自定义…"], state="readonly", width=18); cb.pack(side="left", padx=6); cb.current(0)
+        hexv = tk.StringVar(); ent = ttk.Entry(win, textvariable=hexv); ent.pack(fill="x", padx=12)
+        def on_pick(*_):
+            n = cb.get()
+            if n in self.keys: hexv.set(self.keys[n].hex().upper()); ent.state(["readonly"])
+            else: hexv.set(""); ent.state(["!readonly"]); ent.focus()
+        cb.bind("<<ComboboxSelected>>", on_pick); on_pick(); refresh()
+        ttk.Label(win, text="可在 hd_keys.json 里增删常用 HD Key。", foreground="#666").pack(padx=12, pady=4, anchor="w")
+        def go(*_):
+            try: key = parse_hd_key(hexv.get())
+            except ValueError as ex: messagebox.showwarning("重签", str(ex), parent=win); return
+            if not path.get().strip(): messagebox.showwarning("重签", "请先选择 system.dat。", parent=win); return
+            tag = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "_", cb.get() if cb.get() in self.keys else "custom")
+            out = os.path.join(APP_DIR, "resigned", "%s_%s" % (tag, time.strftime("%Y%m%d_%H%M%S")), "TDATA", "5443000d", "system.dat")
+            try: ok, msg = resign_system_dat(path.get().strip(), key, out)
+            except Exception as ex: messagebox.showerror("重签失败", str(ex), parent=win); return
+            win.destroy()
+            if ok: messagebox.showinfo("重签完成", "已重签，输出（拷到目标主机的 TDATA\\5443000d）:\n" + out)
+            else: messagebox.showerror("重签失败", msg)
         ttk.Button(win, text="开始重签", command=go).pack(pady=10)
 
     def open_folder(self, *_):
