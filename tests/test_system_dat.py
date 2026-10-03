@@ -37,8 +37,13 @@ def _freq_from(data, cover_all):
     mx = max(cnt)
     return [max(1, min(255, c * 255 // mx)) if (c or cover_all) else 0 for c in cnt]    # cover_all: every byte value encodable
 
-def build_raw(decoded, plain_len, seed, key, cover_all=False):
-    stream = SD.rc_encode(decoded, _freq_from(decoded, cover_all))
+def build_raw(decoded, plain_len, seed, key, cover_all=False, sparse=False):
+    freq = _freq_from(decoded, cover_all)
+    stream = SD.rc_encode(decoded, freq)
+    if sparse:      # same body, but with the "N (symbol, freq) pairs" table header (what a fresh game-written file uses)
+        pairs = [(i, f) for i, f in enumerate(freq) if f]
+        assert len(pairs) <= 0x7F
+        stream = bytes([len(pairs)]) + bytes(x for pr in pairs for x in pr) + stream[257:]
     filler = bytes((i * 7 + 3) & 0xFF for i in range(plain_len))
     plain = stream + filler[len(stream):plain_len - 6] + TAIL
     raw = bytes(0x14) + struct.pack("<I", seed) + encrypt_save(plain, seed)
@@ -114,6 +119,21 @@ def test_reencode_with_original_table_is_identical():
     stream = SD.rc_encode(b.decoded, SD.make_freq(b.decoded, SD._old_freq(b.plain)))
     assert b.plain[:len(stream)] == stream
     assert encrypt_save(b.plain, b.seed) == raw[0x18:]
+
+def test_sparse_frequency_table_base(tmp_path):
+    """A freshly created system.dat uses the sparse table format (byte0 = number of pairs), not 0xFF."""
+    dec = build_decoded([0] * 30, list(range(30)), 0)
+    raw = build_raw(dec, SD.SYS_PLAIN_LEN, 0x1234ABCD, TEST_KEY, sparse=True)
+    b = SD.parse_system_dat(raw)
+    assert 0 < b.plain[0] < 0x80 and b.decoded == dec
+    assert SD.read_state(b.decoded)["count"] == 0
+    src = tmp_path / "system.dat"; src.write_bytes(raw)
+    udata = tmp_path / "UDATA"; udata.mkdir(); folder = make_save_folder(udata, 5, 251)
+    res = SD.apply("slot", str(src), folder, OTHER_KEY, "k", out_root=str(tmp_path / "o"))
+    back = SD.parse_system_dat(open(res["out"], "rb").read())
+    st = SD.read_state(back.decoded)
+    assert st["frames"][4] == 251 and st["count"] == 1 and st["order"][:3] == [4, 0, 1]
+    assert back.plain[0] == 0xFF                                         # re-encoded with the full table
 
 @pytest.mark.parametrize("mutate", ["size", "tail", "magic", "count"])
 def test_parse_rejects_bad_input(mutate):
