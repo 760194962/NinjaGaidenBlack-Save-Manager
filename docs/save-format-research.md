@@ -1,4 +1,4 @@
-# 忍者龙剑传 黑（Xbox，TitleID 5443000D）存档研究
+# 忍者外传 黑之章（Xbox，TitleID 5443000D）存档研究
 
 验证样本：30 个真实存档，下面的结论全部对 30/30 成立（标注"推测"的除外）。
 
@@ -34,9 +34,12 @@ for ch in 存档名(UTF-16 每个字符):
 |---|---|---|
 | 槽位 | SaveMeta Name 开头的数字 | 1–30 |
 | 章节号 | Name 里的 `CHAPTER n`；解密数据 0x16842（0 起算）可交叉验证 | 1–16 |
-| 游玩时间 | Name 里的 HHH:MM；解密数据 0x16653 为 u32 帧数，÷60 得秒 | 精确到秒 |
+| 游玩时间 | Name 里的 HHH:MM；帧数 u32，÷60 得秒（位置见下方"注意"） | 精确到秒 |
 | 难度 | 解密数据 0x16840（u8） | 0 Ninja Dog / 1 Normal / 2 Hard / 3 Very Hard / 4 Master Ninja（已由实机确认） |
 | 模式 | Name 是 CHAPTER 还是 MISSION | |
+
+> **注意（更正）**：本节里写的 0x16653 / 0x16840 / 0x16842 / 0x16849 都是**原始解密明文**的偏移。save000.dat 解密后其实是一段区间编码（range coder）压缩流，不是直接的结构体；压缩流之后是游戏缓冲区里的残留数据，旧版本读到的就是残留里的未压缩原数据，所以"碰巧"读得到值。正确读法：解密 → 区间解码 → 跳过 0x2A 字节头 → 结构体 `+0x16628` 处的 u32 是帧数（解码后偏移 0x16652，即比旧偏移少 1）。难度/章节/存档点的旧偏移也是同样的关系（抽查 8 个存档：解码后偏移 −1 处的值与旧读法相同）。
+> 格式和编解码见 [system-dat-research.md](system-dat-research.md)；本仓库的新功能用解码后的值，旧的显示逻辑暂时保留，并提供两者是否一致的检查（本地 30 个存档全部一致）。
 
 ## 4. save000.dat 加密（来自 feudalnate/NinjaCrypt，已用 Python 复现并全部解密成功）
 ```
@@ -45,6 +48,7 @@ for ch in 存档名(UTF-16 每个字符):
 0x18  95,376字节 数据
 解密：MT19937变体(seed) → 先取 56 字节作 Blowfish 密钥 → 数据逐个 u32 与 MT 输出异或 → Blowfish(16轮) 按 8 字节块解密（小端 u32）
 成功标志：解密数据最后 6 字节 = 94 45 8E D2 8A 4F
+解密后的数据本身是区间编码压缩流（byte0 = 频率表格式），后面跟缓冲区残留；上面那 6 字节在残留的最末尾。
 ```
 **读取存档信息不需要任何密钥**，只有重新加密/重签才需要 XboxHDKey。
 
@@ -66,6 +70,7 @@ sigkey = HMAC_SHA1(5C0733AE0401F7E8BA7993FDCD2F1FE0, 游戏签名密钥)[:16]   
 ## 5.6 TDATA 系统存档 system.dat
 位置 `TDATA\5443000D\system.dat`，固定 0x550（1,360）字节，签名方式与 save000.dat 完全相同（偏移 0 的 20 字节 HMAC，覆盖 0x14 之后，同一游戏签名密钥，NoRoam）。重签只需 HD Key，软件会自动处理。
 来源：[feudalnate/Original-Xbox-Gamesave-Resigners](https://github.com/feudalnate/Original-Xbox-Gamesave-Resigners/tree/master/Ninja-Gaiden-Black)。
+**system.dat 的内容（读档列表的每档游玩时间、显示顺序）已逆向，详见 [system-dat-research.md](system-dat-research.md)。**
 
 ## 6. 配套工具
 `ngb_save_info.py`：纯 Python、无需安装依赖。
@@ -74,7 +79,9 @@ python ngb_save_info.py "<...>\5443000d" --csv saves.csv
 ```
 输出槽位、文件夹、章节、时间、精确游玩时间、难度，并校验文件夹哈希是否与存档名一致。
 
-`ngb_save_manager.py`（图形界面）在此基础上还有：移动槽位、按 HD Key 重签、显示每个存档的签名属于哪个 HD Key。
+`ngb_save_manager.py`（图形界面）在此基础上还有：移动槽位、按 HD Key 重签、显示每个存档的签名属于哪个 HD Key、更新 system.dat（游玩时间表/列表顺序）。
+
+`ngb_system_dat.py`：system.dat 的编解码与编辑（命令行，GUI 复用），见 [system-dat-research.md](system-dat-research.md)。
 
 ## 来源
 - [feudalnate/NinjaCrypt](https://github.com/feudalnate/NinjaCrypt)（加密算法、存档尺寸）

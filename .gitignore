@@ -6,3 +6,4 @@ __pycache__/
 *.xbe
 *.rar
 5443000d/
+.pytest_cache/

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ngb_save_info.py - Ninja Gaiden Black (Xbox, title 5443000D) save inspector
+ngb_save_manager.py - Ninja Gaiden Black (Xbox, title 5443000D) save manager (GUI)
 
-Usage:  python ngb_save_info.py <path to ...\\5443000d> [--csv out.csv] [--json out.json]
+Usage:  python ngb_save_manager.py [path to ...\\5443000d]
+        python ngb_save_manager.py --selftest <path to ...\\5443000d>
 
-Per save folder it reports: slot, folder ID, chapter / mission, play time, difficulty,
-and whether the folder ID matches the XDK name hash (sanity check).
+Shows slot, chapter / mission, play time, difficulty per save; moves slots, re-signs saves and
+system.dat for another HD key, and edits system.dat (play-time table / list order).
 No key is needed to READ saves (decryption only needs the seed stored in the file).
 """
 import os, re, struct, sys, csv, json
@@ -235,6 +236,19 @@ def decrypt_save(raw):
     for i in range(n // 8):
         l, r = struct.unpack_from("<II", data, i * 8)
         struct.pack_into("<II", data, i * 8, *bf.dec(l, r))
+    return bytes(data)
+
+def encrypt_save(plain, seed):
+    """Inverse of decrypt_save: Blowfish-encrypt every 8-byte block first, then XOR with the MT output (same seed, same key)."""
+    n = len(plain); data = bytearray(plain)
+    mt = MT(seed)
+    key = b"".join(struct.pack("<I", mt.nxt()) for _ in range(14))
+    bf = Blowfish(key)
+    for i in range(n // 8):
+        l, r = struct.unpack_from("<II", data, i * 8)
+        struct.pack_into("<II", data, i * 8, *bf.enc(l, r))
+    for i in range(n // 4):
+        struct.pack_into("<I", data, i * 4, struct.unpack_from("<I", data, i * 4)[0] ^ mt.nxt())
     return bytes(data)
 
 # ---------------- SaveMeta / scanning ----------------
@@ -504,7 +518,7 @@ COLUMNS = [  # key, title, width, anchor
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("忍者龙剑传 黑 存档管理器 (Xbox / 5443000D)")
+        self.title("忍者外传 黑之章 存档管理器 (Xbox / 5443000D)")
         self.geometry("1280x620"); self.minsize(900, 400)
         self.keys = {}; self.backup_done = None; self.rows = []; self.root_dir = None; self.sort_key = "slot"; self.sort_rev = False
         self.notes = load_json(NOTES_FILE, {})
@@ -516,6 +530,7 @@ class App(tk.Tk):
         ttk.Button(top, text="移动到槽位…", command=self.move_dialog).pack(side="left", padx=4)
         ttk.Button(top, text="HD Key 重签…", command=self.resign_dialog).pack(side="left")
         ttk.Button(top, text="system.dat 重签…", command=self.system_dialog).pack(side="left", padx=4)
+        ttk.Button(top, text="system.dat 更新…", command=self.sysupdate_dialog).pack(side="left")
         ttk.Button(top, text="打开所选存档文件夹", command=self.open_folder).pack(side="left", padx=4)
         ttk.Label(top, text="筛选:").pack(side="left", padx=(14, 2))
         self.q = tk.StringVar(); self.q.trace_add("write", lambda *a: self.fill())
@@ -629,9 +644,15 @@ class App(tk.Tk):
             self.set_detail("已选 %d 个存档，槽位: %s\n可以右键或用上方按钮：复制所选到…、复制到剪贴板、HD Key 重签（重签会作用于全部选中的）。" % (len(sl), ", ".join(str(r.get("slot", "?")) for r in sl))); return
         r = self.current()
         if not r: return
-        self.set_detail("签名属于: %s\n存档名(SaveMeta Name): %s\n文件夹: %s\n按命名规则由存档名算出的文件夹名: %s  →  %s\n章节(存档名): %s    章节(存档数据): %s\n路径: %s" % (
+        if "frames_check" not in r:       # decoding a save in pure Python takes ~0.25 s, so only do it for the clicked row
+            try:
+                import ngb_system_dat
+                sv = ngb_system_dat.read_save(r["path"])
+                r["frames_check"] = "解码值 %d 帧，旧读法(原始明文 0x16653) %d 帧：%s" % (sv["frames"], sv["legacy"], "一致" if sv["frames"] == sv["legacy"] else "不一致")
+            except Exception as ex: r["frames_check"] = "无法检查 (%s)" % ex
+        self.set_detail("签名属于: %s\n存档名(SaveMeta Name): %s\n文件夹: %s\n按命名规则由存档名算出的文件夹名: %s  →  %s\n章节(存档名): %s    章节(存档数据): %s\n游玩帧数检查: %s\n路径: %s" % (
             r.get("signed_by", "-"), r.get("name"), r["folder"], folder_id(r.get("name", "")), "一致" if r.get("hash_ok") else "不一致",
-            r.get("chapter", "-"), r.get("chapter_from_dat", "-"), r.get("path")))
+            r.get("chapter", "-"), r.get("chapter_from_dat", "-"), r["frames_check"], r.get("path")))
 
     def edit_note(self):
         r = self.current()
@@ -669,7 +690,8 @@ class App(tk.Tk):
             try: move_slot(self.root_dir, r["folder"], ns, extra)
             except Exception as ex: messagebox.showerror("移动失败", str(ex), parent=win); return
             win.destroy(); self.load(self.root_dir)
-            messagebox.showinfo("完成", "已移动到槽位 %d%s。\n备份在:\n%s" % (ns, "（并与原占用者交换）" if extra else "", self.backup_done))
+            if messagebox.askyesno("完成", "已移动到槽位 %d%s。\n备份在:\n%s\n\n提示：读档列表里的游玩时间和顺序存在 TDATA\\5443000d\\system.dat 里，不在存档里。移动槽位后建议顺带更新它（推荐“按整套 UDATA 同步”）。\n现在打开 system.dat 更新窗口吗？" % (ns, "（并与原占用者交换）" if extra else "", self.backup_done)):
+                self.sysupdate_dialog("sync")
         e.bind("<Return>", go); ttk.Button(win, text="确定", command=go).pack(pady=10)
 
 
@@ -763,6 +785,78 @@ class App(tk.Tk):
             else: messagebox.showerror("重签失败", msg)
         ttk.Button(win, text="开始重签", command=go).pack(pady=10)
 
+    def sysupdate_dialog(self, mode="slot"):
+        """Edit the TDATA system.dat play-time table / list order (see ngb_system_dat.py, docs/system-dat-research.md)."""
+        import ngb_system_dat as SD
+        self.keys = load_keys()
+        win = tk.Toplevel(self); win.title("更新 system.dat（读档列表的游玩时间 / 顺序）"); win.geometry("800x700"); win.transient(self); win.grab_set()
+        ttk.Label(win, text="底本必须是从 xemu / 360 当前拷出来的 system.dat（总时间、解锁、设置会原样保留）。原文件不会被修改，结果写到 resigned/<key>_<时间>/TDATA/5443000d/system.dat。", wraplength=760).pack(padx=12, pady=(10, 4), anchor="w")
+        base = tk.StringVar(value=(find_system_dat(self.root_dir) or "") if self.root_dir else "")
+        f0 = ttk.Frame(win); f0.pack(fill="x", padx=12, pady=2)
+        ttk.Label(f0, text="底本 system.dat:").pack(side="left")
+        ttk.Entry(f0, textvariable=base).pack(side="left", fill="x", expand=True, padx=6)
+        def browse_base():
+            p = filedialog.askopenfilename(title="选择 system.dat", filetypes=[("system.dat", "system.dat"), ("所有文件", "*.*")], parent=win)
+            if p: base.set(p)
+        ttk.Button(f0, text="浏览…", command=browse_base).pack(side="left")
+        mv = tk.StringVar(value=mode)
+        src = tk.StringVar(); src_lbl = tk.StringVar()
+        f1 = ttk.Frame(win); f1.pack(fill="x", padx=12, pady=(6, 0))
+        for text, val in (("更新单个档位（选一个存档文件夹）", "slot"), ("按整套 UDATA 同步（存在的写真实帧数，不存在的写 0）", "sync"), ("重置顺序（count=30，0..29）", "order")):
+            ttk.Radiobutton(f1, text=text, variable=mv, value=val, command=lambda: on_mode()).pack(anchor="w")
+        f2 = ttk.Frame(win); f2.pack(fill="x", padx=12, pady=4)
+        ttk.Label(f2, textvariable=src_lbl).pack(side="left")
+        ent = ttk.Entry(f2, textvariable=src); ent.pack(side="left", fill="x", expand=True, padx=6)
+        def browse_src():
+            p = filedialog.askdirectory(title="选择文件夹", parent=win)
+            if p: src.set(p)
+        bsrc = ttk.Button(f2, text="浏览…", command=browse_src); bsrc.pack(side="left")
+        def on_mode():
+            m = mv.get()
+            if m == "slot":
+                r = self.current(); src_lbl.set("存档文件夹:"); src.set(r["path"] if r else "")
+            elif m == "sync": src_lbl.set("5443000d 文件夹:"); src.set(self.root_dir or "")
+            else: src_lbl.set(""); src.set("")
+            st = "normal" if m != "order" else "disabled"; ent.config(state=st); bsrc.config(state=st)
+        on_mode()
+        f3 = ttk.Frame(win); f3.pack(fill="x", padx=12, pady=4)
+        ttk.Label(f3, text="目标 HD Key:").pack(side="left")
+        cb = ttk.Combobox(f3, values=list(self.keys) + ["自定义…"], state="readonly", width=18); cb.pack(side="left", padx=6); cb.current(0)
+        hexv = tk.StringVar(); khex = ttk.Entry(win, textvariable=hexv); khex.pack(fill="x", padx=12)
+        def on_pick(*_):
+            n = cb.get()
+            if n in self.keys: hexv.set(self.keys[n].hex().upper()); khex.state(["readonly"])
+            else: hexv.set(""); khex.state(["!readonly"]); khex.focus()
+        cb.bind("<<ComboboxSelected>>", on_pick); on_pick()
+        out = tk.Text(win, wrap="none", height=22, font=("Consolas", 9)); out.pack(fill="both", expand=True, padx=12, pady=6)
+        def show(text):
+            out.config(state="normal"); out.delete("1.0", "end"); out.insert("1.0", text); out.config(state="disabled")
+        show("点“预览”查看修改前后对比（不写文件）；点“写出”生成新的 system.dat。")
+        def busy(on): win.config(cursor="watch" if on else ""); win.update_idletasks()
+        def args():
+            m = mv.get(); s = src.get().strip()
+            if not base.get().strip(): raise ValueError("请先选择底本 system.dat。")
+            if m != "order" and not s: raise ValueError("请先选择%s。" % ("存档文件夹" if m == "slot" else "5443000d 文件夹"))
+            return m, base.get().strip(), (s or None)
+        def preview():
+            try:
+                m, b, s = args(); busy(True)
+                _, _, notes, report = SD.plan(m, b, s)
+                show(report + "\n\n" + "\n".join(notes))
+            except Exception as ex: show("出错: %s" % ex)
+            finally: busy(False)
+        def go():
+            try:
+                key = parse_hd_key(hexv.get()); m, b, s = args(); busy(True)
+                res = SD.apply(m, b, s, key, cb.get() if cb.get() in self.keys else "custom")
+            except Exception as ex: busy(False); show("出错: %s" % ex); messagebox.showerror("system.dat 更新失败", str(ex), parent=win); return
+            busy(False)
+            show(res["report"] + "\n\n" + "\n".join(res["notes"]) + "\n\n已写出并校验通过（重新解码一致、签名正确、其余字节未变）:\n" + res["out"])
+            messagebox.showinfo("system.dat 已更新", "输出（拷到目标主机的 TDATA\\5443000d）:\n" + res["out"], parent=win)
+        fb = ttk.Frame(win); fb.pack(pady=(0, 10))
+        ttk.Button(fb, text="预览", command=preview).pack(side="left", padx=6)
+        ttk.Button(fb, text="写出", command=go).pack(side="left", padx=6)
+
     def open_folder(self, *_):
         r = self.current()
         if not r: messagebox.showinfo("打开文件夹", "请先在列表里选中一个存档。"); return
@@ -826,6 +920,7 @@ class App(tk.Tk):
         messagebox.showinfo("已导出", p)
 
 if __name__ == "__main__":
+    sys.modules.setdefault("ngb_save_manager", sys.modules["__main__"])    # ngb_system_dat imports this file: reuse it instead of loading a second copy
     if "--selftest" in sys.argv:       # headless check, no window
         root = find_save_root(sys.argv[sys.argv.index("--selftest") + 1])
         rows = [inspect(os.path.join(root, e)) for e in sorted(os.listdir(root)) if os.path.isdir(os.path.join(root, e))]
