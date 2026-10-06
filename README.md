@@ -14,6 +14,7 @@ Instead of 12-hex folder names, see what each save actually is: slot, chapter, p
 - Multi-select, copy selected saves to another folder, or copy to clipboard
 - Open a single save's folder; per-save notes (stored in `save_notes.json`, never inside the save)
 - CSV export; CLI version `ngb_save_info.py`
+- English / 中文 UI: click the language button (top right); the choice is saved in `ngb_lang.json`, or set `NGB_LANG=en|zh`. Defaults to your system language.
 
 ## Usage
 Requires Python 3.8+ with tkinter (included in the Windows installer).

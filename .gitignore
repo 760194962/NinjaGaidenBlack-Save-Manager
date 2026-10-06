@@ -7,3 +7,4 @@ __pycache__/
 *.rar
 5443000d/
 .pytest_cache/
+ngb_lang.json
