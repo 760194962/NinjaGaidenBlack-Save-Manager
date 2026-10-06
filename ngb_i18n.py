@@ -51,7 +51,7 @@ EN = {
     "无法打开剪贴板": "Cannot open the clipboard",
     # --- columns ---
     "槽位": "Slot", "模式": "Mode", "章节": "Chapter", "存档时间 HHH:MM": "Save time HHH:MM",
-    "精确游玩时间": "Exact play time", "难度": "Difficulty", "Karma": "Karma", "存档点ID(原始)": "Save point ID (raw)",
+    "精确游玩时间": "Exact play time", "难度": "Difficulty", "Karma": "Karma", "存档点": "Save point", "不一致（解码值: %s）": "mismatch (decoded: %s)",
     "文件修改时间": "Modified", "文件夹名": "Folder", "签名属于(HD Key)": "Signed by (HD Key)",
     "校验": "Check", "备注": "Note",
     # --- main window ---
@@ -78,8 +78,8 @@ EN = {
         "%d saves selected, slots: %s\nUse right-click or the buttons above: copy selected to…, copy to clipboard, HD Key re-sign (applies to all selected).",
     "解码值 %d 帧，旧读法(原始明文 0x16653) %d 帧：%s": "decoded %d frames, old reading (raw plaintext 0x16653) %d frames: %s",
     "一致": "match", "不一致": "mismatch", "无法检查 (%s)": "cannot check (%s)",
-    "签名属于: %s\n存档名(SaveMeta Name): %s\n文件夹: %s\n按命名规则由存档名算出的文件夹名: %s  →  %s\n章节(存档名): %s    章节(存档数据): %s\n游玩帧数检查: %s\n路径: %s":
-        "Signed by: %s\nSave name (SaveMeta Name): %s\nFolder: %s\nFolder name computed from the save name: %s  →  %s\nChapter (from name): %s    Chapter (from save data): %s\nPlay-frames check: %s\nPath: %s",
+    "签名属于: %s\n存档名(SaveMeta Name): %s\n文件夹: %s\n按命名规则由存档名算出的文件夹名: %s  →  %s\n章节(存档名): %s    章节(存档数据): %s\n游玩帧数检查: %s\n存档点: %s（编号 %s），解码核对: %s\n路径: %s":
+        "Signed by: %s\nSave name (SaveMeta Name): %s\nFolder: %s\nFolder name computed from the save name: %s  →  %s\nChapter (from name): %s    Chapter (from save data): %s\nPlay-frames check: %s\nSave point: %s (number %s), decoded check: %s\nPath: %s",
     "备注 - ": "Note - ", "保存": "Save",
     # --- move slot ---
     "移动槽位": "Move slot", "移动槽位一次只能选一个存档。": "Select only one save to move.",

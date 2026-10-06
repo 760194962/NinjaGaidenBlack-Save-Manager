@@ -11,6 +11,7 @@ system.dat for another HD key, and edits system.dat (play-time table / list orde
 No key is needed to READ saves (decryption only needs the seed stored in the file).
 """
 import os, re, struct, sys, csv, json
+import ngb_i18n
 from ngb_i18n import t, set_lang
 
 MOD = 2**48 - 59                       # XDK folder-name hash modulus (prime)
@@ -23,8 +24,73 @@ OFF_PLAYTIME = 0x16653   # u32, 60 frames per second
 OFF_KARMA = 0x1664B      # u32 (matches the in-game KARMA on a Mission save; unaligned)
 OFF_DIFFICULTY = 0x16840 # u8 (0..4)  -- inferred, see notes
 OFF_CHAPTER0 = 0x16842   # u8, 0-based chapter index
-OFF_SAVEPOINT = 0x16849  # u8, looks like a save-point/area id that changes within a chapter (meaning NOT decoded yet)
+OFF_SAVEPOINT = 0x167D9  # u8, save-point number (game struct +0x167AE); turned into a name by save_point_name()
+OFF_SAVEKIND = 0x16845   # u8, game struct +0x1681A: 0/1 = story, anything else = tournament (always named "Master Ninja Tournament")
 DIFFICULTY = {0: "Ninja Dog", 1: "Normal", 2: "Hard", 3: "Very Hard", 4: "Master Ninja"}
+
+# Save-point names, from default.xbe (NGB USA). The Mission load screen (0x228c7a) shows PHASE_NAMES[sp - 0x26] when
+# sp >= 0x26 (Eternal Legend); story saves also use numbers >= 0x26 for normal places, so that rule is Mission-only. Otherwise message 0x120000 | save_point_index(); that message group lives in the
+# MESSTR file spr.afs #363 and is listed here in id order.
+SAVE_POINT_NAMES = [
+    "Ninja Fortress", "Village Entrance", "Village Entrance", "Central Bridge Area", "Central Bridge Area",
+    "Below the Spiral Staircase", "Tairon Outskirts", "Tairon Outskirts", "Drawbridge Area", "Drawbridge Area",
+    "Pleasure Street", "Pleasure Street", "Han's Bar", "Han's Bar", "Monastery", "Monastery", "Monastery Underground",
+    "Econtra Babel Specus", "Giant Fossil Area", "Giant Statue Area", "Giant Statue Area", "Military Gate", "Military Gate",
+    "Steel Bridge Area", "Locomotive Turntable", "Ancient Aquaduct", "Medallion Altar Area", "Junction Chamber",
+    "Falls of Zarkhan", "Ice Cavern", "Ice Cavern Depths", "Magma Cavern", "Cavern Passageway", "Pyramid",
+    "Zarkhan Labyrinth", "Palace Compound", "Imperial Palace Core", "Underworld", "Game Machine", "Valley of Shadows",
+    "Aquaduct", "Passenger Compartment", "Underground Sanctuary Area", "Drawbridge Hill Area", "Drawbridge Hill Area",
+    "Monastery Annex", "Monastery Annex", "Zarkhan Falls Area", "Suspension Bridge Room", "Master Ninja Tournament",
+    "Aquaduct Underground Sanctuary", "Labyrinth of Zarkhan Upper Area", "Airship Upper Catwalk", "Ninja Fortress Tatami Room"]
+# the same names in Japanese (second language of the same messages; full-width spaces made ASCII), shown in the Chinese UI
+SAVE_POINT_NAMES_JA = [
+    "忍者屋敷", "忍びの里 入り口", "忍びの里 入り口", "長の館前", "長の館前", "飛行船 螺旋階段下", "タイロン郊外", "タイロン郊外", "タイロン はね橋", "タイロン はね橋",
+    "タイロン よろこび通り", "タイロン よろこび通り", "タイロン ハンズバー屋上", "タイロン ハンズバー屋上", "ドゥウォーク僧院", "ドゥウォーク僧院", "僧院地下",
+    "リバースバベル空洞", "巨大化石前", "秘密の地下 大神像の横", "秘密の地下 大神像の横", "軍事ゲート", "軍事ゲート", "軍供給基地 横断鉄橋", "ターンテーブル",
+    "地下水路 古代水路", "ザルカンの堀 祭壇", "秘密の地下 深部", "ザルカン滝", "氷の洞窟", "氷の洞窟 深部", "溶岩洞窟", "洞窟間の通路", "ピラミッド", "ザルカンの迷路",
+    "ザルカン 核芯外辺苑", "皇宮核芯", "大冥界", "ゲーム機", "影の谷", "地下水路", "飛行船 客室", "ザルカンの堀 地下神殿の扉", "ドゥウォーク はね橋坂上",
+    "ドゥウォーク はね橋坂上", "ドゥウォーク 僧院別館", "ドゥウォーク 僧院別館", "ザルカンの滝付近", "秘密の地下 つり橋の大広間", "マスターニンジャトーナメント", "地下水路 地下神殿",
+    "ザルカンの迷路 高台", "飛行船 上層通路", "忍者屋敷 広間"]
+# Eternal Legend phases: the game has no Japanese text for these, so they stay English
+PHASE_NAMES = ["PHASE 1 COMPLETE", "PHASE 2 COMPLETE", "PHASE 3 COMPLETE", "PHASE 4 COMPLETE", "--- PHASE 5 ---",
+               "PHASE 5 COMPLETE", "PHASE 6 COMPLETE", "PHASE 7 COMPLETE", "PHASE 8 COMPLETE"]
+# save-point number -> name index, the default case of default.xbe 0x229c10 (numbers 38..46 all map to the tournament)
+_SP_INDEX = [0x00, 0x01, 0x03, 0x05, 0x06, 0x08, 0x0A, 0x0C, 0x0E, 0x10, 0x11, 0x12, 0x13, 0x15, 0x17, 0x18, 0x19, 0x1A, 0x1B,
+             0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x2F, 0x30] + [0x31] * 9 + [0x32, 0x33, 0x34]
+
+# Chapter titles as the load screen shows them (message group 0x0E, spr.afs #363; the game prints the number full-width)
+CHAPTER_NAMES = ["1 The Way of the Ninja", "2 The Hayabusa Ninja Village", "3 Skies of Vengeance", "4 Imperial City Infiltration",
+                 "5 The City of Fiends", "6 The Monastery", "7 Hidden Underground", "8 Tairon Under Alert", "9 The Military Supply Base",
+                 "10 The Aquaduct", "11 The Path to Zarkhan", "12 The Caverns", "13 The Fiendish Awakening", "14 Vengeful Spirit",
+                 "15 The Core", "16 The Dark Dragon Blade"]
+CHAPTER_NAMES_JA = ["1 忍びの道", "2 忍びの里", "3 怨讐の空", "4 帝都潜入", "5 魔神の街", "6 僧院", "7 秘密の地下", "8 タイロン厳戒",
+                    "9 軍供給基地", "10 地下水路", "11 ザルカンへの抜け穴", "12 洞窟", "13 地獄の覚醒", "14 怨霊", "15 核心", "16 黒龍丸"]
+
+def chapter_name(r):
+    """Chapter column text: the in-game title (Japanese in the Chinese UI), 'Eternal Legend' for Mission saves."""
+    if r.get("kind") == "Mission": return "Eternal Legend"
+    n = r.get("chapter") or r.get("chapter_from_dat")
+    if not n or not 1 <= n <= len(CHAPTER_NAMES): return "" if n is None else str(n)
+    return (CHAPTER_NAMES_JA if ngb_i18n.LANG == "zh" else CHAPTER_NAMES)[n - 1]
+
+def save_point_index(ch0, sp, kind):
+    """Port of default.xbe 0x229c10: (0-based chapter, save-point number, kind byte) -> SAVE_POINT_NAMES index, -1 = none.
+    Some numbers are reused across chapters and pick a different (same-named) message depending on the chapter."""
+    if sp == 0x32: return 0x35
+    if ch0 == 0xFE: return 0x27
+    if sp >= 0x32 or ch0 >= 0x10: return -1
+    c7 = 1 if ch0 == 7 else 0
+    i = {1: 2 if ch0 > 1 else 1, 2: 4 if ch0 > 1 else 3, 4: 6 + c7, 5: 8 + c7, 6: 0xA + c7, 7: 0xC + c7, 8: 0xE + c7,
+         12: 0x14 if ch0 > 6 else 0x13, 13: 0x16 if ch0 > 8 else 0x15, 34: 0x2B + c7, 35: 0x2D + c7}.get(sp, _SP_INDEX[sp])
+    if kind not in (0, 1): return 0x31
+    return i if i < len(SAVE_POINT_NAMES) else -1
+
+def save_point_name(ch0, sp, kind, mission=False):
+    if mission and sp >= 0x26:
+        return PHASE_NAMES[sp - 0x26] if sp - 0x26 < len(PHASE_NAMES) else "?"
+    i = save_point_index(ch0, sp, kind)
+    if i < 0: return "?"
+    return SAVE_POINT_NAMES_JA[i] if ngb_i18n.LANG == "zh" else SAVE_POINT_NAMES[i]
 
 def folder_id(name):
     """Folder name = 12 hex digits of h, h = (h*0x10000 + utf16_unit) mod (2^48-59), over the save name."""
@@ -286,6 +352,7 @@ def inspect(folder):
             info["difficulty"] = DIFFICULTY.get(d[OFF_DIFFICULTY], "?%d" % d[OFF_DIFFICULTY])
             info["chapter_from_dat"] = d[OFF_CHAPTER0] + 1
             info["save_point_raw"] = d[OFF_SAVEPOINT]
+            info["save_point"] = save_point_name(d[OFF_CHAPTER0], d[OFF_SAVEPOINT], d[OFF_SAVEKIND], info.get("kind") == "Mission")
             info["karma"] = struct.unpack_from("<I", d, OFF_KARMA)[0]
     return info
 
@@ -512,10 +579,10 @@ def find_save_root(path):
     return None
 
 COLUMNS = [  # key, title, width, anchor
-    ("slot", "槽位", 50, "center"), ("kind", "模式", 70, "center"), ("chapter", "章节", 50, "center"),
+    ("slot", "槽位", 50, "center"), ("kind", "模式", 70, "center"), ("chapter", "章节", 170, "w"),
     ("time_label", "存档时间 HHH:MM", 135, "center"),
     ("playtime", "精确游玩时间", 90, "center"), ("difficulty", "难度", 95, "center"), ("karma", "Karma", 80, "center"),
-    ("save_point_raw", "存档点ID(原始)", 115, "center"), ("modified", "文件修改时间", 130, "center"),
+    ("save_point", "存档点", 190, "w"), ("modified", "文件修改时间", 130, "center"),
     ("folder", "文件夹名", 125, "center"), ("signed_by", "签名属于(HD Key)", 130, "center"), ("check", "校验", 70, "center"), ("note", "备注", 200, "w")]
 
 class App(tk.Tk):
@@ -556,7 +623,8 @@ class App(tk.Tk):
         ttk.Button(top2, text=t("复制所选到剪贴板（资源管理器 Ctrl+V 粘贴）"), command=self.copy_clip).pack(side="left")
         ttk.Button(top2, text=t("删除所选 (Del)"), command=self.delete_selected).pack(side="left", padx=4)
         ttk.Label(top2, text=t("Ctrl/Shift 多选"), foreground="#666").pack(side="left", padx=10)
-        frm = ttk.Frame(self); frm.pack(fill="both", expand=True, padx=6)
+        pane = ttk.PanedWindow(self, orient="vertical"); pane.pack(fill="both", expand=True, padx=6, pady=(0, 6))   # drag the sash to resize the detail box
+        frm = ttk.Frame(pane); pane.add(frm, weight=1)
         self.tree = ttk.Treeview(frm, columns=[c[0] for c in COLUMNS], show="headings", selectmode="extended")
         for k, ttl, w, a in COLUMNS:
             self.tree.heading(k, text=t(ttl), command=lambda k=k: self.sort_by(k))
@@ -565,7 +633,7 @@ class App(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True); vs.pack(side="right", fill="y")
         self.tree.tag_configure("bad", foreground="#b00020"); self.tree.tag_configure("odd", background="#f4f6fa")
         self.tree.bind("<<TreeviewSelect>>", self.on_select); self.tree.bind("<Double-1>", self.on_double); self.tree.bind("<Delete>", self.delete_selected);self.tree.bind("<Control-a>", self.select_all); self.tree.bind("<Control-A>", self.select_all); self.tree.bind("<Button-3>", self.popup); self.tree.bind("<Button-2>", self.popup)
-        self.detail = tk.Text(self, height=5, wrap="word", state="disabled", background="#fafafa"); self.detail.pack(fill="x", padx=6, pady=6)
+        self.detail = tk.Text(pane, height=5, wrap="word", state="disabled", background="#fafafa"); pane.add(self.detail, weight=0)
         bottom = ttk.Frame(self); bottom.pack(fill="x", padx=8, pady=(0, 6))
         ttk.Button(bottom, text=t("English"), command=self.switch_lang, width=8).pack(side="right")      # bottom-right so it is never clipped on small screens
         self.status = ttk.Label(bottom, text="", anchor="w"); self.status.pack(side="left", fill="x", expand=True)
@@ -606,9 +674,8 @@ class App(tk.Tk):
             if r.get("decrypt_ok") is False: return t("解密失败")
             return t("正常") if r.get("hash_ok") else t("名称≠哈希")
         if k == "note": return self.notes.get(r["folder"], "")
+        if k == "chapter": return chapter_name(r)
         if k == "modified": return time.strftime("%Y-%m-%d %H:%M", time.localtime(r["modified"])) if r.get("modified") else ""
-        if k == "save_point_raw":
-            v = r.get("save_point_raw"); return "" if v is None else "0x%02X (%d)" % (v, v)
         v = r.get(k); return "" if v is None else v
 
     def sortval(self, r, k):
@@ -621,7 +688,7 @@ class App(tk.Tk):
             try: h, m, s = map(int, r["playtime"].split(":")); return h * 3600 + m * 60 + s
             except Exception: return 0
         if k == "modified": return r.get("modified", 0)
-        if k == "save_point_raw": return r.get("save_point_raw", -1)
+        if k == "save_point": return (r.get("save_point_raw", -1), r.get("save_point", ""))
         return str(self.cell(r, k))
 
     def sort_by(self, k):
@@ -667,10 +734,13 @@ class App(tk.Tk):
                 import ngb_system_dat
                 sv = ngb_system_dat.read_save(r["path"])
                 r["frames_check"] = t("解码值 %d 帧，旧读法(原始明文 0x16653) %d 帧：%s") % (sv["frames"], sv["legacy"], t("一致") if sv["frames"] == sv["legacy"] else t("不一致"))
-            except Exception as ex: r["frames_check"] = t("无法检查 (%s)") % ex
-        self.set_detail(t("签名属于: %s\n存档名(SaveMeta Name): %s\n文件夹: %s\n按命名规则由存档名算出的文件夹名: %s  →  %s\n章节(存档名): %s    章节(存档数据): %s\n游玩帧数检查: %s\n路径: %s") % (
+                dec_sp = save_point_name(*sv["save_point"], r.get("kind") == "Mission") if sv["save_point"] else "-"
+                r["sp_check"] = t("一致") if dec_sp == r.get("save_point") else t("不一致（解码值: %s）") % dec_sp
+            except Exception as ex: r["frames_check"] = r["sp_check"] = t("无法检查 (%s)") % ex
+        self.set_detail(t("签名属于: %s\n存档名(SaveMeta Name): %s\n文件夹: %s\n按命名规则由存档名算出的文件夹名: %s  →  %s\n章节(存档名): %s    章节(存档数据): %s\n游玩帧数检查: %s\n存档点: %s（编号 %s），解码核对: %s\n路径: %s") % (
             r.get("signed_by", "-"), r.get("name"), r["folder"], folder_id(r.get("name", "")), t("一致") if r.get("hash_ok") else t("不一致"),
-            r.get("chapter", "-"), r.get("chapter_from_dat", "-"), r["frames_check"], r.get("path")))
+            r.get("chapter", "-"), r.get("chapter_from_dat", "-"), r["frames_check"],
+            r.get("save_point", "-"), "0x%02X" % r["save_point_raw"] if "save_point_raw" in r else "-", r["sp_check"], r.get("path")))
 
     def edit_note(self):
         r = self.current()

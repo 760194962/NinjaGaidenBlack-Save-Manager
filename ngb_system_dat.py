@@ -101,6 +101,9 @@ ORDER_REGION = (SYS_HEADER + OFF_COUNT, SYS_HEADER + OFF_CURSOR)      # absolute
 FRAMES_REGION = (SYS_HEADER + OFF_FRAMES, SYS_HEADER + OFF_FRAMES + 4 * NSLOTS)
 # save000.dat decodes with the same coder; the frame count lives at struct +0x16628 (after the 0x2A header)
 SAVE_FRAMES_OFF = SYS_HEADER + 0x16628
+SAVE_SP_OFF = SYS_HEADER + 0x167AE        # u8 save-point number   (struct offsets read by default.xbe 0x179db0)
+SAVE_CH_OFF = SYS_HEADER + 0x16817        # u8 0-based chapter
+SAVE_KIND_OFF = SYS_HEADER + 0x1681A      # u8 story / tournament
 
 def _u32(b, off): return struct.unpack_from("<I", b, off)[0]
 
@@ -152,10 +155,11 @@ def read_save(folder):
     if len(raw) != SAVE_SIZE: raise ValueError(t("save000.dat 大小不对(%d)") % len(raw))
     plain = decrypt_save(raw)
     if plain[-6:] != TAIL: raise ValueError(t("save000.dat 解密失败"))
-    dec = rc_decode(plain, SAVE_FRAMES_OFF + 4)
+    dec = rc_decode(plain, SAVE_KIND_OFF + 1)
     if len(dec) < SAVE_FRAMES_OFF + 4: raise ValueError(t("save000.dat 解码后太短(0x%X)") % len(dec))
     frames = _u32(dec, SAVE_FRAMES_OFF)
-    return {"slot": int(m.group(1)), "name": name, "frames": frames, "legacy": _u32(plain, OFF_PLAYTIME), "folder": folder}
+    return {"slot": int(m.group(1)), "name": name, "frames": frames, "legacy": _u32(plain, OFF_PLAYTIME), "folder": folder,
+            "save_point": (dec[SAVE_CH_OFF], dec[SAVE_SP_OFF], dec[SAVE_KIND_OFF]) if len(dec) > SAVE_KIND_OFF else None}
 
 def scan_saves(root):
     """read_save() for every save folder under root. Returns (list of results, list of (folder, error))."""

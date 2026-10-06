@@ -19,7 +19,7 @@ TAIL = bytes([0x94, 0x45, 0x8E, 0xD2, 0x8A, 0x4F])
 OFF_PLAYTIME = 0x16653   # u32, 60 frames per second
 OFF_DIFFICULTY = 0x16840 # u8 (0..4) 
 OFF_CHAPTER0 = 0x16842   # u8, 0-based chapter index
-OFF_SAVEPOINT = 0x16849  # u8, looks like a save-point/area id that changes within a chapter (meaning NOT decoded yet)
+OFF_SAVEPOINT = 0x167D9  # u8, save-point number; ngb_save_manager.save_point_name() turns it into the in-game name
 DIFFICULTY = {0: "Ninja Dog", 1: "Normal", 2: "Hard", 3: "Very Hard", 4: "Master Ninja"}
 
 def folder_id(name):

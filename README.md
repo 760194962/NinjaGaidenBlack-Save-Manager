@@ -34,7 +34,7 @@ HD keys: `hd_keys.json` (created on first run, git-ignored) holds `{"name": "32 
 Folder name = XDK `XCreateSaveGame` hash of the save name; `save000.dat` is NinjaCrypt-encrypted and HMAC-signed with the console HD key. Details in [docs/save-format-research.md](docs/save-format-research.md) and [docs/system-dat-research.md](docs/system-dat-research.md) (Chinese).
 
 ## Known limits
-- Save-point names and chapter titles are not shown: the save only stores IDs, and the ID→name table is not decoded yet.
+- Save-point names are the English names from the USA `default.xbe` (mapping reverse-engineered, see the research doc); chapter titles are not shown.
 - The in-game list order and times come from `system.dat` (see the research doc), not from the save folders; after moving or swapping slots, update `system.dat` too.
 
 ## Credits
