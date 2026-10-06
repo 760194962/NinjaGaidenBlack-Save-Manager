@@ -71,6 +71,8 @@ save000.dat 也是同样的压缩格式：解密 → `rc_decode` → 跳过 0x2A
 2. **按整套 UDATA 同步**（`sync`）：存在的档位写真实帧数，不存在的写 0。顺序表不动。
 3. **重置顺序**（`order`）：`count = 30`，`order = 0..29`（游戏会自动跳过不存在的档位）。
 
+> **为什么没有“全部写 0”**：系统存档界面读的就是这张表，全写 0 会让所有存档都显示 0:00:00，要在游戏里把每个存档读一遍才会恢复。所以不提供这个操作；要“清掉过期时间”请用 `sync`（不存在的档位写 0，存在的写真实值）。
+
 ```
 python ngb_system_dat.py slot  <system.dat> <存档文件夹>  --key <hd_keys.json 里的名字> [--dry-run]
 python ngb_system_dat.py sync  <system.dat> <...\UDATA\5443000d> --hd-key <32位十六进制>
