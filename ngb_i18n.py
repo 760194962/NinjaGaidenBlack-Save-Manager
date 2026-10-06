@@ -51,7 +51,7 @@ EN = {
     "无法打开剪贴板": "Cannot open the clipboard",
     # --- columns ---
     "槽位": "Slot", "模式": "Mode", "章节": "Chapter", "存档时间 HHH:MM": "Save time HHH:MM",
-    "精确游玩时间": "Exact play time", "难度": "Difficulty", "存档点ID(原始)": "Save point ID (raw)",
+    "精确游玩时间": "Exact play time", "难度": "Difficulty", "Karma": "Karma", "存档点ID(原始)": "Save point ID (raw)",
     "文件修改时间": "Modified", "文件夹名": "Folder", "签名属于(HD Key)": "Signed by (HD Key)",
     "校验": "Check", "备注": "Note",
     # --- main window ---

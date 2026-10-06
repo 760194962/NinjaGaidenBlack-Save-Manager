@@ -20,6 +20,7 @@ DATA_OFF = 0x18                        # header: 0x14 HMAC sig + 0x04 seed
 TAIL = bytes([0x94, 0x45, 0x8E, 0xD2, 0x8A, 0x4F])
 # offsets inside the DECRYPTED data (i.e. file offset - 0x18)
 OFF_PLAYTIME = 0x16653   # u32, 60 frames per second
+OFF_KARMA = 0x1664B      # u32 (matches the in-game KARMA on a Mission save; unaligned)
 OFF_DIFFICULTY = 0x16840 # u8 (0..4)  -- inferred, see notes
 OFF_CHAPTER0 = 0x16842   # u8, 0-based chapter index
 OFF_SAVEPOINT = 0x16849  # u8, looks like a save-point/area id that changes within a chapter (meaning NOT decoded yet)
@@ -285,6 +286,7 @@ def inspect(folder):
             info["difficulty"] = DIFFICULTY.get(d[OFF_DIFFICULTY], "?%d" % d[OFF_DIFFICULTY])
             info["chapter_from_dat"] = d[OFF_CHAPTER0] + 1
             info["save_point_raw"] = d[OFF_SAVEPOINT]
+            info["karma"] = struct.unpack_from("<I", d, OFF_KARMA)[0]
     return info
 
 
@@ -512,7 +514,7 @@ def find_save_root(path):
 COLUMNS = [  # key, title, width, anchor
     ("slot", "槽位", 50, "center"), ("kind", "模式", 70, "center"), ("chapter", "章节", 50, "center"),
     ("time_label", "存档时间 HHH:MM", 135, "center"),
-    ("playtime", "精确游玩时间", 90, "center"), ("difficulty", "难度", 95, "center"),
+    ("playtime", "精确游玩时间", 90, "center"), ("difficulty", "难度", 95, "center"), ("karma", "Karma", 80, "center"),
     ("save_point_raw", "存档点ID(原始)", 115, "center"), ("modified", "文件修改时间", 130, "center"),
     ("folder", "文件夹名", 125, "center"), ("signed_by", "签名属于(HD Key)", 130, "center"), ("check", "校验", 70, "center"), ("note", "备注", 200, "w")]
 
@@ -547,7 +549,6 @@ class App(tk.Tk):
         ttk.Button(top, text=t("打开所选存档文件夹"), command=self.open_folder).pack(side="left", padx=4)
         ttk.Label(top, text=t("筛选:")).pack(side="left", padx=(14, 2))
         ttk.Entry(top, textvariable=self.q, width=18).pack(side="left")
-        ttk.Button(top, text=t("English"), command=self.switch_lang, width=8).pack(side="right")
         self.path_lbl = ttk.Label(top, text=t("（未选择）"), foreground="#666"); self.path_lbl.pack(side="left", padx=12)
         top2 = ttk.Frame(self, padding=(6, 0, 6, 4)); top2.pack(fill="x")
         ttk.Button(top2, text=t("全选 (Ctrl+A)"), command=self.select_all).pack(side="left")
@@ -565,7 +566,9 @@ class App(tk.Tk):
         self.tree.tag_configure("bad", foreground="#b00020"); self.tree.tag_configure("odd", background="#f4f6fa")
         self.tree.bind("<<TreeviewSelect>>", self.on_select); self.tree.bind("<Double-1>", self.on_double); self.tree.bind("<Delete>", self.delete_selected);self.tree.bind("<Control-a>", self.select_all); self.tree.bind("<Control-A>", self.select_all); self.tree.bind("<Button-3>", self.popup); self.tree.bind("<Button-2>", self.popup)
         self.detail = tk.Text(self, height=5, wrap="word", state="disabled", background="#fafafa"); self.detail.pack(fill="x", padx=6, pady=6)
-        self.status = ttk.Label(self, text="", anchor="w"); self.status.pack(fill="x", padx=8, pady=(0, 6))
+        bottom = ttk.Frame(self); bottom.pack(fill="x", padx=8, pady=(0, 6))
+        ttk.Button(bottom, text=t("English"), command=self.switch_lang, width=8).pack(side="right")      # bottom-right so it is never clipped on small screens
+        self.status = ttk.Label(bottom, text="", anchor="w"); self.status.pack(side="left", fill="x", expand=True)
         if self.root_dir: self.path_lbl.config(text=self.root_dir)
 
     def try_auto(self):
@@ -610,6 +613,7 @@ class App(tk.Tk):
 
     def sortval(self, r, k):
         if k in ("slot", "chapter"): return r.get(k, 9999)
+        if k == "karma": return r.get("karma", -1)
         if k == "time_label":
             try: h, m = r["time_label"].split(":"); return int(h) * 60 + int(m)
             except Exception: return 0
